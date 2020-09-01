@@ -1,0 +1,185 @@
+[
+    {
+      "label": "Details",
+      "fields": [
+        {
+          "key": "ou",
+          "templateOptions": {
+            "label": "Account type",
+            "required": true,
+            "useObjects": false,
+            "useDataSource": true,
+            "useFilter": false,
+            "options": [
+              "1111",
+              "2222",
+              "33333"
+            ],
+            "valueField": "Path",
+            "textField": "Name",
+            "dataSourceConfig": {
+              "dataSourceGuid": "054a89b6-5692-42a9-7e64-08d7586618fb",
+              "input": {
+                "propertyInputs": []
+              },
+              "filter": {
+                "propertyInputs": []
+              }
+            }
+          },
+          "type": "dropdown",
+          "summaryVisibility": "Show",
+          "textOrLabel": "text",
+          "requiresTemplateOptions": true
+        },
+        {
+          "key": "givenname",
+          "templateOptions": {
+            "label": "Givenname",
+            "placeholder": "John",
+            "required": true,
+            "minLength": 2
+          },
+          "type": "input",
+          "summaryVisibility": "Show",
+          "requiresTemplateOptions": true
+        },
+        {
+          "key": "middlename",
+          "templateOptions": {
+            "label": "Middle name",
+            "placeholder": "van der"
+          },
+          "type": "input",
+          "summaryVisibility": "Show",
+          "requiresTemplateOptions": true
+        },
+        {
+          "key": "lastname",
+          "templateOptions": {
+            "label": "Last name",
+            "placeholder": "Poel",
+            "required": true,
+            "minLength": 2
+          },
+          "type": "input",
+          "summaryVisibility": "Show",
+          "requiresTemplateOptions": true
+        },
+        {
+          "key": "title",
+          "templateOptions": {
+            "label": "Job title",
+            "placeholder": "Application owner"
+          },
+          "type": "input",
+          "summaryVisibility": "Show",
+          "requiresTemplateOptions": true
+        },
+        {
+          "key": "department",
+          "templateOptions": {
+            "label": "Department",
+            "placeholder": "ICT"
+          },
+          "type": "input",
+          "summaryVisibility": "Show",
+          "requiresTemplateOptions": true
+        },
+        {
+          "key": "blnExpDate",
+          "templateOptions": {
+            "label": "Account Expires",
+            "useSwitch": true,
+            "checkboxLabel": " yes"
+          },
+          "type": "boolean",
+          "summaryVisibility": "Show",
+          "requiresTemplateOptions": true
+        },
+        {
+          "key": "expiredate",
+          "templateOptions": {
+            "label": "Expire date",
+            "dateOnly": true
+          },
+          "hideExpression": "!model[\"blnExpDate\"]",
+          "type": "datetime",
+          "summaryVisibility": "Show",
+          "requiresTemplateOptions": true
+        },
+        {
+          "key": "password",
+          "templateOptions": {
+            "label": "Password",
+            "required": true,
+            "minLength": 5
+          },
+          "type": "password",
+          "summaryVisibility": "Hide value",
+          "requiresTemplateOptions": true
+        }
+      ]
+    },
+    {
+      "label": "Naming",
+      "fields": [
+        {
+          "key": "naming",
+          "templateOptions": {
+            "label": "Naming convention",
+            "required": true,
+            "grid": {
+              "columns": [
+                {
+                  "headerName": "displayName",
+                  "field": "displayname"
+                },
+                {
+                  "headerName": "sAMAccountname",
+                  "field": "samaccountname"
+                },
+                {
+                  "headerName": "userPrincipalName",
+                  "field": "userPrincipalName"
+                }
+              ],
+              "height": 300,
+              "rowSelection": "single"
+            },
+            "dataSourceConfig": {
+              "dataSourceGuid": "33be3345-f65d-4d8e-0ffd-08d78857c3bd",
+              "input": {
+                "propertyInputs": [
+                  {
+                    "propertyName": "givenName",
+                    "otherFieldValue": {
+                      "otherFieldKey": "givenname"
+                    }
+                  },
+                  {
+                    "propertyName": "lastName",
+                    "otherFieldValue": {
+                      "otherFieldKey": "lastname"
+                    }
+                  },
+                  {
+                    "propertyName": "middleName",
+                    "otherFieldValue": {
+                      "otherFieldKey": "middlename"
+                    }
+                  }
+                ]
+              },
+              "filter": {
+                "propertyInputs": []
+              }
+            }
+          },
+          "type": "grid",
+          "summaryVisibility": "Show",
+          "requiresTemplateOptions": true
+        }
+      ]
+    }
+  ]
