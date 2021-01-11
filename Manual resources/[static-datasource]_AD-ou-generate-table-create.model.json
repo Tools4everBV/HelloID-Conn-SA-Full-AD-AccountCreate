@@ -1,0 +1,22 @@
+[
+    {
+        "key":  "Type",
+        "type":  0
+    },
+    {
+        "key":  "Path",
+        "type":  0
+    },
+    {
+        "key":  "Selected",
+        "type":  0
+    },
+    {
+        "key":  "Name",
+        "type":  0
+    },
+    {
+        "key":  "Groups",
+        "type":  0
+    }
+]
