@@ -35,7 +35,7 @@ After the all-in-one PowerShell script has run and created all the required reso
 ## Manual resources
 This Delegated Form uses the following resources in order to run
 
-### Static data source 'AD-ou-generate-table-create'
+### Static data source 'AD-account-generate-table-account-types-account-create'
 This Static data source returns the available user types and corresponding configuration for Active Directory OU and default AD groupmemberships.
 
 ### Powershell data source 'AD-user-create-check-names'
