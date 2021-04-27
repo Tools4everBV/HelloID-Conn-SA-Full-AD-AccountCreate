@@ -1,6 +1,6 @@
 # Account Create
 
-This form creates an AD account. The account can be a new employee (who is not in the HR system), a test account, or a supplier account. 
+This form creates an AD account. The account can be an internal employee or an external contractor/supplier. 
 
 ## Business Benefits
 
