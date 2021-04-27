@@ -43,3 +43,6 @@ This Powershell data source runs an Active Directory query to return available n
 
 ### Delegated form task 'AD-user-create'
 This delegated form task will create a new AD user account based on selected available name, default groupmemberships and corresponding Active Directory container.
+
+# HelloID Docs
+The official HelloID documentation can be found at: https://docs.helloid.com/
