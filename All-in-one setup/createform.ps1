@@ -1,13 +1,12 @@
 # Set TLS to accept TLS, TLS 1.1 and TLS 1.2
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls -bor [Net.SecurityProtocolType]::Tls11 -bor [Net.SecurityProtocolType]::Tls12
-
 #HelloID variables
 #Note: when running this script inside HelloID; portalUrl and API credentials are provided automatically (generate and save API credentials first in your admin panel!)
 $portalUrl = "https://CUSTOMER.helloid.com"
 $apiKey = "API_KEY"
 $apiSecret = "API_SECRET"
 $delegatedFormAccessGroupNames = @("Users") #Only unique names are supported. Groups must exist!
-$delegatedFormCategories = @("Active Directory","User Management") #Only unique names are supported. Categories will be created if not exists
+$delegatedFormCategories = @("Active Directory","User Management","Azure Active Directory") #Only unique names are supported. Categories will be created if not exists
 $script:debugLogging = $false #Default value: $false. If $true, the HelloID resource GUIDs will be shown in the logging
 $script:duplicateForm = $false #Default value: $false. If $true, the HelloID resource names will be changed to import a duplicate Form
 $script:duplicateFormSuffix = "_tmp" #the suffix will be added to all HelloID resource names to generate a duplicate form with different resource names
@@ -21,14 +20,13 @@ $tmpName = @'
 ADuserUPNsuffix
 '@ 
 $tmpValue = @'
-veeken.local
+schoulens.nl
 '@ 
 $globalHelloIDVariables.Add([PSCustomObject]@{name = $tmpName; value = $tmpValue; secret = "False"});
 
 
 #make sure write-information logging is visual
 $InformationPreference = "continue"
-
 # Check for prefilled API Authorization header
 if (-not [string]::IsNullOrEmpty($portalApiBasic)) {
     $script:headers = @{"authorization" = $portalApiBasic}
@@ -42,7 +40,6 @@ if (-not [string]::IsNullOrEmpty($portalApiBasic)) {
     $script:headers = @{"authorization" = $Key}
     Write-Information "Using manual API credentials"
 }
-
 # Check for prefilled PortalBaseURL
 if (-not [string]::IsNullOrEmpty($portalBaseUrl)) {
     $script:PortalBaseUrl = $portalBaseUrl
@@ -51,10 +48,8 @@ if (-not [string]::IsNullOrEmpty($portalBaseUrl)) {
     $script:PortalBaseUrl = $portalUrl
     Write-Information "Using manual PortalURL: $script:PortalBaseUrl"
 }
-
 # Define specific endpoint URI
 $script:PortalBaseUrl = $script:PortalBaseUrl.trim("/") + "/"  
-
 # Make sure to reveive an empty array using PowerShell Core
 function ConvertFrom-Json-WithEmptyArray([string]$jsonString) {
     # Running in PowerShell Core?
@@ -66,16 +61,13 @@ function ConvertFrom-Json-WithEmptyArray([string]$jsonString) {
         return ,$r  # Force return value to be an array using a comma
     }
 }
-
 function Invoke-HelloIDGlobalVariable {
     param(
         [parameter(Mandatory)][String]$Name,
         [parameter(Mandatory)][String][AllowEmptyString()]$Value,
         [parameter(Mandatory)][String]$Secret
     )
-
     $Name = $Name + $(if ($script:duplicateForm -eq $true) { $script:duplicateFormSuffix })
-
     try {
         $uri = ($script:PortalBaseUrl + "api/v1/automation/variables/named/$Name")
         $response = Invoke-RestMethod -Method Get -Uri $uri -Headers $script:headers -ContentType "application/json" -Verbose:$false
@@ -93,7 +85,6 @@ function Invoke-HelloIDGlobalVariable {
             $uri = ($script:PortalBaseUrl + "api/v1/automation/variable")
             $response = Invoke-RestMethod -Method Post -Uri $uri -Headers $script:headers -ContentType "application/json" -Verbose:$false -Body $body
             $variableGuid = $response.automationVariableGuid
-
             Write-Information "Variable '$Name' created$(if ($script:debugLogging -eq $true) { ": " + $variableGuid })"
         } else {
             $variableGuid = $response.automationVariableGuid
@@ -103,7 +94,6 @@ function Invoke-HelloIDGlobalVariable {
         Write-Error "Variable '$Name', message: $_"
     }
 }
-
 function Invoke-HelloIDAutomationTask {
     param(
         [parameter(Mandatory)][String]$TaskName,
@@ -117,7 +107,6 @@ function Invoke-HelloIDAutomationTask {
     )
     
     $TaskName = $TaskName + $(if ($script:duplicateForm -eq $true) { $script:duplicateFormSuffix })
-
     try {
         $uri = ($script:PortalBaseUrl +"api/v1/automationtasks?search=$TaskName&container=$AutomationContainer")
         $responseRaw = (Invoke-RestMethod -Method Get -Uri $uri -Headers $script:headers -ContentType "application/json" -Verbose:$false) 
@@ -125,7 +114,6 @@ function Invoke-HelloIDAutomationTask {
     
         if([string]::IsNullOrEmpty($response.automationTaskGuid) -or $ForceCreateTask -eq $true) {
             #Create Task
-
             $body = @{
                 name                = $TaskName;
                 useTemplate         = $UseTemplate;
@@ -139,7 +127,6 @@ function Invoke-HelloIDAutomationTask {
             $uri = ($script:PortalBaseUrl +"api/v1/automationtasks/powershell")
             $response = Invoke-RestMethod -Method Post -Uri $uri -Headers $script:headers -ContentType "application/json" -Verbose:$false -Body $body
             $taskGuid = $response.automationTaskGuid
-
             Write-Information "Powershell task '$TaskName' created$(if ($script:debugLogging -eq $true) { ": " + $taskGuid })"
         } else {
             #Get TaskGUID
@@ -149,10 +136,8 @@ function Invoke-HelloIDAutomationTask {
     } catch {
         Write-Error "Powershell task '$TaskName', message: $_"
     }
-
     $returnObject.Value = $taskGuid
 }
-
 function Invoke-HelloIDDatasource {
     param(
         [parameter(Mandatory)][String]$DatasourceName,
@@ -164,9 +149,7 @@ function Invoke-HelloIDDatasource {
         [parameter()][String][AllowEmptyString()]$AutomationTaskGuid,
         [parameter(Mandatory)][Ref]$returnObject
     )
-
     $DatasourceName = $DatasourceName + $(if ($script:duplicateForm -eq $true) { $script:duplicateFormSuffix })
-
     $datasourceTypeName = switch($DatasourceType) { 
         "1" { "Native data source"; break} 
         "2" { "Static data source"; break} 
@@ -204,10 +187,8 @@ function Invoke-HelloIDDatasource {
     } catch {
       Write-Error "$datasourceTypeName '$DatasourceName', message: $_"
     }
-
     $returnObject.Value = $datasourceGuid
 }
-
 function Invoke-HelloIDDynamicForm {
     param(
         [parameter(Mandatory)][String]$FormName,
@@ -216,7 +197,6 @@ function Invoke-HelloIDDynamicForm {
     )
     
     $FormName = $FormName + $(if ($script:duplicateForm -eq $true) { $script:duplicateFormSuffix })
-
     try {
         try {
             $uri = ($script:PortalBaseUrl +"api/v1/forms/$FormName")
@@ -245,11 +225,8 @@ function Invoke-HelloIDDynamicForm {
     } catch {
         Write-Error "Dynamic form '$FormName', message: $_"
     }
-
     $returnObject.Value = $formGuid
 }
-
-
 function Invoke-HelloIDDelegatedForm {
     param(
         [parameter(Mandatory)][String]$DelegatedFormName,
@@ -258,11 +235,11 @@ function Invoke-HelloIDDelegatedForm {
         [parameter()][String][AllowEmptyString()]$Categories,
         [parameter(Mandatory)][String]$UseFaIcon,
         [parameter()][String][AllowEmptyString()]$FaIcon,
+        [parameter()][String][AllowEmptyString()]$task,
         [parameter(Mandatory)][Ref]$returnObject
     )
     $delegatedFormCreated = $false
     $DelegatedFormName = $DelegatedFormName + $(if ($script:duplicateForm -eq $true) { $script:duplicateFormSuffix })
-
     try {
         try {
             $uri = ($script:PortalBaseUrl +"api/v1/delegatedforms/$DelegatedFormName")
@@ -280,6 +257,7 @@ function Invoke-HelloIDDelegatedForm {
                 accessGroups    = (ConvertFrom-Json-WithEmptyArray($AccessGroups));
                 useFaIcon       = $UseFaIcon;
                 faIcon          = $FaIcon;
+                task            = ConvertFrom-Json -inputObject $task;
             }    
             $body = ConvertTo-Json -InputObject $body
     
@@ -289,7 +267,6 @@ function Invoke-HelloIDDelegatedForm {
             $delegatedFormGuid = $response.delegatedFormGUID
             Write-Information "Delegated form '$DelegatedFormName' created$(if ($script:debugLogging -eq $true) { ": " + $delegatedFormGuid })"
             $delegatedFormCreated = $true
-
             $bodyCategories = $Categories
             $uri = ($script:PortalBaseUrl +"api/v1/delegatedforms/$delegatedFormGuid/categories")
             $response = Invoke-RestMethod -Method Post -Uri $uri -Headers $script:headers -ContentType "application/json" -Verbose:$false -Body $bodyCategories
@@ -302,10 +279,10 @@ function Invoke-HelloIDDelegatedForm {
     } catch {
         Write-Error "Delegated form '$DelegatedFormName', message: $_"
     }
-
     $returnObject.value.guid = $delegatedFormGuid
     $returnObject.value.created = $delegatedFormCreated
 }
+
 <# Begin: HelloID Global Variables #>
 foreach ($item in $globalHelloIDVariables) {
 	Invoke-HelloIDGlobalVariable -Name $item.name -Value $item.value -Secret $item.secret 
@@ -314,6 +291,20 @@ foreach ($item in $globalHelloIDVariables) {
 
 
 <# Begin: HelloID Data sources #>
+<# Begin: DataSource "AD-account-generate-table-account-types-account-create" #>
+$tmpStaticValue = @'
+[{"Name":"Employee","Path":"OU=Employees,OU=Users,OU=Enyoi,DC=enyoi-media,DC=local","Type":"employee","Groups":["@{Name=TestGroup1}"],"Selected":0},{"Name":"External","Path":"OU=External,OU=Users,OU=Enyoi,DC=enyoi-media,DC=local","Type":"external","Groups":["@{Name=TestGroup1}","@{Name=TestGroup2}"],"Selected":1}]
+'@ 
+$tmpModel = @'
+[{"key":"Type","type":0},{"key":"Path","type":0},{"key":"Selected","type":0},{"key":"Name","type":0},{"key":"Groups","type":0}]
+'@ 
+$dataSourceGuid_0 = [PSCustomObject]@{} 
+$dataSourceGuid_0_Name = @'
+AD-account-generate-table-account-types-account-create
+'@ 
+Invoke-HelloIDDatasource -DatasourceName $dataSourceGuid_0_Name -DatasourceType "2" -DatasourceStaticValue $tmpStaticValue -DatasourceModel $tmpModel -returnObject ([Ref]$dataSourceGuid_0) 
+<# End: DataSource "AD-account-generate-table-account-types-account-create" #>
+
 <# Begin: DataSource "AD-user-create-check-names" #>
 $tmpPsScript = @'
 try {
@@ -380,25 +371,11 @@ AD-user-create-check-names
 '@ 
 Invoke-HelloIDDatasource -DatasourceName $dataSourceGuid_1_Name -DatasourceType "4" -DatasourceInput $tmpInput -DatasourcePsScript $tmpPsScript -DatasourceModel $tmpModel -returnObject ([Ref]$dataSourceGuid_1) 
 <# End: DataSource "AD-user-create-check-names" #>
-
-<# Begin: DataSource "AD-account-generate-table-account-types-account-create" #>
-$tmpStaticValue = @'
-[{"Name":"Employee","Path":"OU=Employees,OU=Users,OU=Enyoi,DC=enyoi-media,DC=local","Type":"employee","Groups":"[{\"Name\": \"TestGroup1\"},{\"Name\": \"TestGroup2\"}]","Selected":0},{"Name":"External","Path":"OU=External,OU=Users,OU=Enyoi,DC=enyoi-media,DC=local","Type":"external","Groups":"[{\"Name\": \"TestGroup2\"}]","Selected":1}]
-'@ 
-$tmpModel = @'
-[{"key":"Type","type":0},{"key":"Path","type":0},{"key":"Selected","type":0},{"key":"Name","type":0},{"key":"Groups","type":0}]
-'@ 
-$dataSourceGuid_0 = [PSCustomObject]@{} 
-$dataSourceGuid_0_Name = @'
-AD-account-generate-table-account-types-account-create
-'@ 
-Invoke-HelloIDDatasource -DatasourceName $dataSourceGuid_0_Name -DatasourceType "2" -DatasourceStaticValue $tmpStaticValue -DatasourceModel $tmpModel -returnObject ([Ref]$dataSourceGuid_0) 
-<# End: DataSource "AD-account-generate-table-account-types-account-create" #>
 <# End: HelloID Data sources #>
 
 <# Begin: Dynamic Form "AD Account - Create" #>
 $tmpSchema = @"
-[{"label":"Details","fields":[{"key":"ou","templateOptions":{"label":"Account type","required":true,"useObjects":false,"useDataSource":true,"useFilter":false,"options":["1111","2222","33333"],"valueField":"Path","textField":"Name","dataSourceConfig":{"dataSourceGuid":"$dataSourceGuid_0","input":{"propertyInputs":[]}}},"type":"dropdown","summaryVisibility":"Show","textOrLabel":"text","requiresTemplateOptions":true},{"key":"formRow","templateOptions":{},"fieldGroup":[{"key":"givenname","templateOptions":{"label":"Givenname","placeholder":"John","required":true,"minLength":2},"type":"input","summaryVisibility":"Show","requiresTemplateOptions":true},{"key":"middlename","templateOptions":{"label":"Middle name","placeholder":"van der"},"type":"input","summaryVisibility":"Show","requiresTemplateOptions":true},{"key":"lastname","templateOptions":{"label":"Last name","placeholder":"Poel","required":true,"minLength":2},"type":"input","summaryVisibility":"Show","requiresTemplateOptions":true}],"type":"formrow","requiresTemplateOptions":true},{"key":"department","templateOptions":{"label":"Department","placeholder":"ICT"},"type":"input","summaryVisibility":"Show","requiresTemplateOptions":true},{"key":"title","templateOptions":{"label":"Job title","placeholder":"Application owner"},"type":"input","summaryVisibility":"Show","requiresTemplateOptions":true},{"key":"formRow1","templateOptions":{},"fieldGroup":[{"key":"blnExpDate","templateOptions":{"label":"Account Expires","useSwitch":true,"checkboxLabel":" yes"},"type":"boolean","summaryVisibility":"Show","requiresTemplateOptions":true},{"key":"expiredate","templateOptions":{"label":"Expire date","dateOnly":true},"hideExpression":"!model[\"blnExpDate\"]","type":"datetime","summaryVisibility":"Show","requiresTemplateOptions":true}],"type":"formrow","requiresTemplateOptions":true},{"key":"password","templateOptions":{"label":"Password","required":true,"minLength":5},"type":"password","summaryVisibility":"Hide value","requiresTemplateOptions":true}]},{"label":"Naming","fields":[{"key":"naming","templateOptions":{"label":"Naming convention","required":true,"grid":{"columns":[{"headerName":"Displayname","field":"displayname"},{"headerName":"UserPrincipalName","field":"userPrincipalName"},{"headerName":"Samaccountname","field":"samaccountname"}],"height":300,"rowSelection":"single"},"dataSourceConfig":{"dataSourceGuid":"$dataSourceGuid_1","input":{"propertyInputs":[{"propertyName":"givenName","otherFieldValue":{"otherFieldKey":"givenname"}},{"propertyName":"middleName","otherFieldValue":{"otherFieldKey":"middlename"}},{"propertyName":"lastName","otherFieldValue":{"otherFieldKey":"lastname"}}]}},"useFilter":false},"type":"grid","summaryVisibility":"Show","requiresTemplateOptions":true}]}]
+[{"label":"Details","fields":[{"key":"ou","templateOptions":{"label":"Account type","required":true,"useObjects":false,"useDataSource":true,"useFilter":false,"options":["1111","2222","33333"],"valueField":"Path","textField":"Name","dataSourceConfig":{"dataSourceGuid":"$dataSourceGuid_0","input":{"propertyInputs":[]}}},"type":"dropdown","summaryVisibility":"Show","textOrLabel":"text","requiresTemplateOptions":true,"requiresKey":true,"requiresDataSource":false},{"key":"formRow","templateOptions":{},"fieldGroup":[{"key":"givenname","templateOptions":{"label":"Givenname","placeholder":"John","required":true,"minLength":2},"type":"input","summaryVisibility":"Show","requiresTemplateOptions":true,"requiresKey":true,"requiresDataSource":false},{"key":"middlename","templateOptions":{"label":"Middle name","placeholder":"van der"},"type":"input","summaryVisibility":"Show","requiresTemplateOptions":true,"requiresKey":true,"requiresDataSource":false},{"key":"lastname","templateOptions":{"label":"Last name","placeholder":"Poel","required":true,"minLength":2},"type":"input","summaryVisibility":"Show","requiresTemplateOptions":true,"requiresKey":true,"requiresDataSource":false}],"type":"formrow","requiresTemplateOptions":true,"requiresKey":true,"requiresDataSource":false},{"key":"department","templateOptions":{"label":"Department","placeholder":"ICT"},"type":"input","summaryVisibility":"Show","requiresTemplateOptions":true,"requiresKey":true,"requiresDataSource":false},{"key":"title","templateOptions":{"label":"Job title","placeholder":"Application owner"},"type":"input","summaryVisibility":"Show","requiresTemplateOptions":true,"requiresKey":true,"requiresDataSource":false},{"key":"formRow1","templateOptions":{},"fieldGroup":[{"key":"blnExpDate","templateOptions":{"label":"Account Expires","useSwitch":true,"checkboxLabel":" yes"},"type":"boolean","summaryVisibility":"Show","requiresTemplateOptions":true,"requiresKey":true,"requiresDataSource":false},{"key":"expiredate","templateOptions":{"label":"Expire date","dateOnly":true},"hideExpression":"!model[\"blnExpDate\"]","type":"datetime","summaryVisibility":"Show","requiresTemplateOptions":true,"requiresKey":true,"requiresDataSource":false}],"type":"formrow","requiresTemplateOptions":true,"requiresKey":true,"requiresDataSource":false},{"key":"password","templateOptions":{"label":"Password","required":true,"minLength":5},"type":"password","summaryVisibility":"Hide value","requiresTemplateOptions":true,"requiresKey":true,"requiresDataSource":false}]},{"label":"Naming","fields":[{"key":"naming","templateOptions":{"label":"Naming convention","required":true,"grid":{"columns":[{"headerName":"Displayname","field":"displayname"},{"headerName":"UserPrincipalName","field":"userPrincipalName"},{"headerName":"Samaccountname","field":"samaccountname"}],"height":300,"rowSelection":"single"},"dataSourceConfig":{"dataSourceGuid":"$dataSourceGuid_1","input":{"propertyInputs":[{"propertyName":"givenName","otherFieldValue":{"otherFieldKey":"givenname"}},{"propertyName":"middleName","otherFieldValue":{"otherFieldKey":"middlename"}},{"propertyName":"lastName","otherFieldValue":{"otherFieldKey":"lastname"}}]}},"useFilter":false},"type":"grid","summaryVisibility":"Show","requiresTemplateOptions":true,"requiresKey":true,"requiresDataSource":true}]}]
 "@ 
 
 $dynamicFormGuid = [PSCustomObject]@{} 
@@ -423,7 +400,6 @@ foreach($group in $delegatedFormAccessGroupNames) {
     }
 }
 $delegatedFormAccessGroupGuids = ($delegatedFormAccessGroupGuids | Select-Object -Unique | ConvertTo-Json -Compress)
-
 $delegatedFormCategoryGuids = @()
 foreach($category in $delegatedFormCategories) {
     try {
@@ -439,12 +415,10 @@ foreach($category in $delegatedFormCategories) {
             name = @{"en" = $category};
         }
         $body = ConvertTo-Json -InputObject $body
-
         $uri = ($script:PortalBaseUrl +"api/v1/delegatedformcategories")
         $response = Invoke-RestMethod -Method Post -Uri $uri -Headers $script:headers -ContentType "application/json" -Verbose:$false -Body $body
         $tmpGuid = $response.delegatedFormCategoryGuid
         $delegatedFormCategoryGuids += $tmpGuid
-
         Write-Information "HelloID Delegated Form category '$category' successfully created$(if ($script:debugLogging -eq $true) { ": " + $tmpGuid })"
     }
 }
@@ -456,76 +430,10 @@ $delegatedFormRef = [PSCustomObject]@{guid = $null; created = $null}
 $delegatedFormName = @'
 AD account - Create
 '@
-Invoke-HelloIDDelegatedForm -DelegatedFormName $delegatedFormName -DynamicFormGuid $dynamicFormGuid -AccessGroups $delegatedFormAccessGroupGuids -Categories $delegatedFormCategoryGuids -UseFaIcon "True" -FaIcon "fa fa-user-plus" -returnObject ([Ref]$delegatedFormRef) 
-<# End: Delegated Form #>
-
-<# Begin: Delegated Form Task #>
-if($delegatedFormRef.created -eq $true) { 
-	$tmpScript = @'
-try {
-    if($blnexpdate -ne 'true'){
-    	$expDate = $null
-    } else {
-    	$expDate = [datetime]$expiredate
-    }
-    
-    Hid-Write-Status -Message "Expiredate: $expDate" -Event Information
-    
-    
-    $ADUserParams = @{
-        Name            =   $sAMAccountName
-        sAMAccountName  =   $sAMAccountName
-        AccountPassword =   (ConvertTo-SecureString -AsPlainText $password -Force)
-        path            =   $ou
-        Enabled         =   $true
-        UserPrincipalName   =   $userPrincipalName
-        GivenName       =   $firstname
-        Surname         =   $lastname
-        DisplayName     =   $displayName
-        Description     =   "Created by HelloID Form"
-        Department      =   $department
-        Title           =   $title
-        AccountExpirationDate   =   $expDate
-    }
-    
-    $ADUserParams.Add( 'OtherAttributes', @{'EmployeeType'="$employeeType"} )
-    
-    New-ADUser @ADUserParams
-    
-    Hid-Write-Status -Message "AD user [$sAMAccountName] created successfully" -Event Success
-    HID-Write-Summary -Message "AD user [$sAMAccountName] created successfully" -Event Success
-    
-    if(($defaultGroups -ne "[]") -and ([String]::IsNullOrEmpty($defaultGroups) -eq $false)){
-        try {
-            $adUser = Get-ADuser -Filter { UserPrincipalName -eq $userPrincipalName }
-            $groupsToAdd = $defaultGroups
-            $groupsToAddJson = $groupsToAdd | ConvertFrom-Json
-            
-            Add-ADPrincipalGroupMembership -Identity $adUser -MemberOf $groupsToAddJson.name -Confirm:$false
-            HID-Write-Status -Message "Finished adding AD user [$sAMAccountName] to AD groups $groupsToAdd" -Event Success
-            HID-Write-Summary -Message "Successfully added AD user [$sAMAccountName] to AD groups $groupsToAdd" -Event Success
-        } catch {
-            HID-Write-Status -Message "Could not add AD user [$sAMAccountName] to AD groups $groupsToAdd. Error: $($_.Exception.Message)" -Event Error
-            HID-Write-Summary -Message "Failed to add AD user [$sAMAccountName] to AD groups $groupsToAdd" -Event Failed
-        }
-    }
-    
-} catch {
-    HID-Write-Status -Message "Error creating AD user [$sAMAccountName]. Error: $($_.Exception.Message)" -Event Error
-    HID-Write-Summary -Message "Error creating AD user [$sAMAccountName]" -Event Failed
-}
-'@; 
-
-	$tmpVariables = @'
-[{"name":"blnexpdate","value":"{{form.blnExpDate}}","secret":false,"typeConstraint":"string"},{"name":"defaultGroups","value":"{{form.ou.Groups}}","secret":false,"typeConstraint":"string"},{"name":"department","value":"{{form.department}}","secret":false,"typeConstraint":"string"},{"name":"displayname","value":"{{form.naming.displayname}}","secret":false,"typeConstraint":"string"},{"name":"employeeType","value":"{{form.ou.Type}}","secret":false,"typeConstraint":"string"},{"name":"expiredate","value":"{{form.expiredate}}","secret":false,"typeConstraint":"string"},{"name":"firstname","value":"{{form.givenname}}","secret":false,"typeConstraint":"string"},{"name":"lastname","value":"{{form.lastname}}","secret":false,"typeConstraint":"string"},{"name":"middlename","value":"{{form.middlename}}","secret":false,"typeConstraint":"string"},{"name":"ou","value":"{{form.ou.Path}}","secret":false,"typeConstraint":"string"},{"name":"password","value":"{{form.password}}","secret":false,"typeConstraint":"string"},{"name":"samaccountname","value":"{{form.naming.samaccountname}}","secret":false,"typeConstraint":"string"},{"name":"title","value":"{{form.title}}","secret":false,"typeConstraint":"string"},{"name":"userprincipalname","value":"{{form.naming.userPrincipalName}}","secret":false,"typeConstraint":"string"}]
+$tmpTask = @'
+{"name":"AD account - Create","script":"$VerbosePreference = \"SilentlyContinue\"\r\n$InformationPreference = \"Continue\"\r\n$WarningPreference = \"Continue\"\r\n\r\n# variables configured in form\r\n$blnexpdate = $form.blnexpdate\r\n$defaultGroups = $form.ou.groups\r\n$department = $form.department\r\n$displayName = $form.naming.displayname\r\n$employeeType = $form.ou.type\r\n$expiredate = $form.expiredate\r\n$firstname = $form.givenname\r\n$lastname = $form.lastname\r\n$middlename = $form.middlename\r\n$ou = $form.ou.Path\r\n$password = $form.password\r\n$sAMAccountName = $form.naming.samaccountname\r\n$userPrincipalName = $form.naming.UserPrincipalName\r\n\r\ntry {\r\n    if($blnexpdate -ne 'true'){\r\n    \t$expDate = $null\r\n    } else {\r\n    \t$expDate = [datetime]$expiredate\r\n    }\r\n    \r\n    Write-Information \"Expiredate: $expDate\"\r\n    \r\n    $ADUserParams = @{\r\n        Name            =   $sAMAccountName\r\n        sAMAccountName  =   $sAMAccountName\r\n        AccountPassword =   (ConvertTo-SecureString -AsPlainText $password -Force)\r\n        path            =   $ou\r\n        Enabled         =   $true\r\n        UserPrincipalName   =   $userPrincipalName\r\n        GivenName       =   $firstname\r\n        Surname         =   $lastname\r\n        DisplayName     =   $displayName\r\n        Description     =   \"Created by HelloID Form\"\r\n        Department      =   $department\r\n        Title           =   $title\r\n        AccountExpirationDate   =   $expDate\r\n    }\r\n    \r\n    $ADUserParams.Add( 'OtherAttributes', @{'EmployeeType'=\"$employeeType\"} )\r\n\r\n    $createUser = New-ADUser @ADUserParams\r\n    \r\n    Write-Information \"AD user [$sAMAccountName] created successfully\"\r\n\r\n    if(-not([String]::IsNullOrEmpty($defaultGroups.Name))){\r\n        try {\r\n            $adUser = Get-ADuser -Filter { UserPrincipalName -eq $userPrincipalName }\r\n            $groupsToAdd = $defaultGroups\r\n\r\n            $addGroupMembership = Add-ADPrincipalGroupMembership -Identity $adUser -MemberOf $groupsToAdd.name -Confirm:$false\r\n            Write-Information \"Successfully added AD user [$sAMAccountName] to AD groups $($groupsToAdd | Out-String)\"\r\n        } catch {\r\n            Write-Error \"Could not add AD user [$sAMAccountName] to AD groups $($groupsToAdd.name). Error: $($_.Exception.Message)\"\r\n        }\r\n    }\r\n    \r\n} catch {\r\n    Write-Error \"Error creating AD user [$sAMAccountName]. Error: $($_.Exception.Message)\"\r\n}","runInCloud":false}
 '@ 
 
-	$delegatedFormTaskGuid = [PSCustomObject]@{} 
-$delegatedFormTaskName = @'
-AD-user-create
-'@
-	Invoke-HelloIDAutomationTask -TaskName $delegatedFormTaskName -UseTemplate "False" -AutomationContainer "8" -Variables $tmpVariables -PowershellScript $tmpScript -ObjectGuid $delegatedFormRef.guid -ForceCreateTask $true -returnObject ([Ref]$delegatedFormTaskGuid) 
-} else {
-	Write-Warning "Delegated form '$delegatedFormName' already exists. Nothing to do with the Delegated Form task..." 
-}
-<# End: Delegated Form Task #>
+Invoke-HelloIDDelegatedForm -DelegatedFormName $delegatedFormName -DynamicFormGuid $dynamicFormGuid -AccessGroups $delegatedFormAccessGroupGuids -Categories $delegatedFormCategoryGuids -UseFaIcon "True" -FaIcon "fa fa-user-plus" -task $tmpTask -returnObject ([Ref]$delegatedFormRef) 
+<# End: Delegated Form #>
+
