@@ -4,7 +4,9 @@
     "Path": "OU=Employees,OU=Users,OU=Enyoi,DC=enyoi-media,DC=local",
     "Type": "employee",
     "Groups": [
-      "@{Name=TestGroup1}"
+      {
+        "Name": "TestGroup1"
+      }
     ],
     "Selected": 0
   },
@@ -13,8 +15,12 @@
     "Path": "OU=External,OU=Users,OU=Enyoi,DC=enyoi-media,DC=local",
     "Type": "external",
     "Groups": [
-      "@{Name=TestGroup1}",
-      "@{Name=TestGroup2}"
+      {
+        "Name": "TestGroup1"
+      },
+      {
+        "Name": "TestGroup2"
+      }
     ],
     "Selected": 1
   }
