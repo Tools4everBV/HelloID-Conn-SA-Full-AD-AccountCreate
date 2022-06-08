@@ -6,8 +6,8 @@
 $portalUrl = "https://CUSTOMER.helloid.com"
 $apiKey = "API_KEY"
 $apiSecret = "API_SECRET"
-$delegatedFormAccessGroupNames = @("") #Only unique names are supported. Groups must exist!
-$delegatedFormCategories = @("","") #Only unique names are supported. Categories will be created if not exists
+$delegatedFormAccessGroupNames = @() #Only unique names are supported. Groups must exist!
+$delegatedFormCategories = @("User Management","Active Directory") #Only unique names are supported. Categories will be created if not exists
 $script:debugLogging = $false #Default value: $false. If $true, the HelloID resource GUIDs will be shown in the logging
 $script:duplicateForm = $false #Default value: $false. If $true, the HelloID resource names will be changed to import a duplicate Form
 $script:duplicateFormSuffix = "_tmp" #the suffix will be added to all HelloID resource names to generate a duplicate form with different resource names
@@ -16,12 +16,21 @@ $script:duplicateFormSuffix = "_tmp" #the suffix will be added to all HelloID re
 #NOTE: You can also update the HelloID Global variable values afterwards in the HelloID Admin Portal: https://<CUSTOMER>.helloid.com/admin/variablelibrary
 $globalHelloIDVariables = [System.Collections.Generic.List[object]]@();
 
-#Global variable #1 >> ADuserUPNsuffix
+#Global variable #1 >> ADgroupsSearchOU
 $tmpName = @'
-ADuserUPNsuffix
+ADgroupsSearchOU
 '@ 
 $tmpValue = @'
-enyoi-media.local
+[{ "OU": "OU=Groups,OU=Resources,DC=enyoi,DC=nl"}]
+'@ 
+$globalHelloIDVariables.Add([PSCustomObject]@{name = $tmpName; value = $tmpValue; secret = "False"});
+
+#Global variable #2 >> ADusersSearchOU
+$tmpName = @'
+ADusersSearchOU
+'@ 
+$tmpValue = @'
+[{ "OU": "OU=Users,OU=Resources,DC=enyoi,DC=nl"}]
 '@ 
 $globalHelloIDVariables.Add([PSCustomObject]@{name = $tmpName; value = $tmpValue; secret = "False"});
 
@@ -278,11 +287,15 @@ function Invoke-HelloIDDelegatedForm {
                 name            = $DelegatedFormName;
                 dynamicFormGUID = $DynamicFormGuid;
                 isEnabled       = "True";
-                accessGroups    = (ConvertFrom-Json-WithEmptyArray($AccessGroups));
                 useFaIcon       = $UseFaIcon;
                 faIcon          = $FaIcon;
                 task            = ConvertFrom-Json -inputObject $task;
-            }    
+            }
+            if(-not[String]::IsNullOrEmpty($AccessGroups)) { 
+                $body += @{
+                    accessGroups    = (ConvertFrom-Json-WithEmptyArray($AccessGroups));
+                }
+            }
             $body = ConvertTo-Json -InputObject $body -Depth 100
     
             $uri = ($script:PortalBaseUrl +"api/v1/delegatedforms")
@@ -318,96 +331,150 @@ foreach ($item in $globalHelloIDVariables) {
 
 
 <# Begin: HelloID Data sources #>
-<# Begin: DataSource "AD-user-create-check-names" #>
+<# Begin: DataSource "AD-group-generate-table-members-manage-memberships" #>
 $tmpPsScript = @'
 try {
-    $iterationMax = 10
-    $iterationStart = 1;
-    $givenName = $datasource.givenName
-    $middleName = $datasource.middleName
-    $lastName = $datasource.lastName
-    
-    function Remove-StringLatinCharacters
-    {
-        PARAM ([string]$String)
-        [Text.Encoding]::ASCII.GetString([Text.Encoding]::GetEncoding("Cyrillic").GetBytes($String))
-    }
-    
-    for($i = $iterationStart; $i -lt $iterationMax; $i++) {
+    $groupName = $datasource.selectedGroup.name     
+    Write-information "Searching AD group [$groupName]"
+     
+    if(-not [String]::IsNullOrEmpty($groupName)){
+        $adGroup = Get-ADgroup -Filter {Name -eq $groupName}
+        Write-information "Finished searching AD group [$groupName]"
+         
+        $users = Get-ADGroupMember $adGroup | Where objectClass -eq "user"
+        $resultCount = @($users).Count
+              
+        Write-information "User memberships: $resultCount"
         
-    	$sAMAccountName = $givenName.substring(0,1) + "." + $lastName
-    	$displayName = $givenName + " " + $middleName + " " + $lastName
-    	
-        if($i -eq $iterationStart) {
-            $sAMAccountName = $sAMAccountName
+        if($resultCount -gt 0){
+            foreach($user in $users)
+            {
+                $adUser = Get-ADUser $user -properties *
+                $displayValue = $adUser.displayName + " [" + $adUser.sAMAccountName + "]"
+                 
+                $returnObject = @{sAMAccountName="$($adUser.sAMAccountName)"; name=$displayValue}
+                Write-output $returnObject
+            }
         } else {
-            $sAMAccountName = $sAMAccountName + "$i"
-        }
-    	
-    	$sAMAccountName = $sAMAccountName.ToLower()
-    	$sAMAccountName = Remove-StringLatinCharacters $sAMAccountName
-    	$sAMAccountName = $sAMAccountName.trim() -replace '\s+', ''
-    	
-    	$displayName = $displayName.trim() -replace '\s+', ' '
-    	
-    	$upn = $sAMAccountName + "@" + $ADuserUPNsuffix
-        
-        Write-information "Searching for AD user sAMAccountName=$sAMAccountName or userPrincipalName=$upn"
-        $found = Get-ADUser -Filter{sAMAccountName -eq $sAMAccountName -or userPrincipalName -eq $upn}
-    
-        if(@($found).count -eq 0) {
-            $returnObject = @{samaccountname=$sAMAccountName; displayname=$displayName; userPrincipalName=$upn}
-            Write-information "AD User sAMAccountName=$sAMAccountName or userPrincipalName=$upn not found"
-            break;
-        } else {
-            Write-information "AD User sAMAccountName=$sAMAccountName or userPrincipalName=$upn found"
+            return
         }
     }
 } catch {
-    Write-error "Error generating names. Error: $($_.Exception.Message)"
-}
-
-
-if(-not [string]::IsNullOrEmpty($returnObject)) {
-   Write-output $returnObject
+    Write-error "Error getting members for AD group [$groupName]. Error: $($_.Exception.Message)"
+    return
 }
 '@ 
 $tmpModel = @'
-[{"key":"displayname","type":0},{"key":"userPrincipalName","type":0},{"key":"samaccountname","type":0}]
+[{"key":"sAMAccountName","type":0},{"key":"name","type":0}]
 '@ 
 $tmpInput = @'
-[{"description":null,"translateDescription":false,"inputFieldType":1,"key":"givenName","type":0,"options":1},{"description":null,"translateDescription":false,"inputFieldType":1,"key":"middleName","type":0,"options":0},{"description":null,"translateDescription":false,"inputFieldType":1,"key":"lastName","type":0,"options":1}]
+[{"description":null,"translateDescription":false,"inputFieldType":1,"key":"selectedGroup","type":0,"options":1}]
 '@ 
-$dataSourceGuid_1 = [PSCustomObject]@{} 
-$dataSourceGuid_1_Name = @'
-AD-user-create-check-names
+$dataSourceGuid_2 = [PSCustomObject]@{} 
+$dataSourceGuid_2_Name = @'
+AD-group-generate-table-members-manage-memberships
 '@ 
-Invoke-HelloIDDatasource -DatasourceName $dataSourceGuid_1_Name -DatasourceType "4" -DatasourceInput $tmpInput -DatasourcePsScript $tmpPsScript -DatasourceModel $tmpModel -returnObject ([Ref]$dataSourceGuid_1) 
-<# End: DataSource "AD-user-create-check-names" #>
+Invoke-HelloIDDatasource -DatasourceName $dataSourceGuid_2_Name -DatasourceType "4" -DatasourceInput $tmpInput -DatasourcePsScript $tmpPsScript -DatasourceModel $tmpModel -returnObject ([Ref]$dataSourceGuid_2) 
+<# End: DataSource "AD-group-generate-table-members-manage-memberships" #>
 
-<# Begin: DataSource "AD-account-generate-table-account-types-account-create" #>
-$tmpStaticValue = @'
-[{"Name":"Employee","Path":"OU=Employees,OU=Users,OU=Enyoi,DC=enyoi-media,DC=local","Type":"employee","Groups":[{"Name":"TestGroup1"}],"Selected":0},{"Name":"External","Path":"OU=External,OU=Users,OU=Enyoi,DC=enyoi-media,DC=local","Type":"external","Groups":[{"Name":"TestGroup1"},{"Name":"TestGroup2"}],"Selected":1}]
+<# Begin: DataSource "AD-group-generate-table-wildcard-manage-memberships" #>
+$tmpPsScript = @'
+try {
+    $searchValue = $datasource.searchValue
+    $searchQuery = "*$searchValue*"
+    $searchOUs = $ADgroupsSearchOU
+    
+    if(-not [String]::IsNullOrEmpty($searchValue)) {
+        Write-information "SearchQuery: $searchQuery"
+        Write-information "SearchBase: $searchOUs"
+        
+        $ous = $searchOUs | ConvertFrom-Json    
+        $groups = foreach($item in $ous) {
+             Get-ADGroup -Filter {Name -like $searchQuery} -SearchBase $item.ou -properties *
+        }
+        
+        $groups = $groups | Sort-Object -Property Name
+        $resultCount = @($groups).Count
+        Write-information "Result count: $resultCount"
+    	
+        if(@($groups).Count -gt 0) {
+            foreach($group in $groups)
+            {
+                $returnObject = @{name=$group.name; description=$group.description;}
+                Write-output $returnObject
+            }
+        } else {
+            return
+        }
+    }
+} catch {
+    Write-error "Error searching AD user [$searchValue]. Error: $($_.Exception.Message)"
+    return
+}
+
 '@ 
 $tmpModel = @'
-[{"key":"Type","type":0},{"key":"Path","type":0},{"key":"Selected","type":0},{"key":"Name","type":0},{"key":"Groups","type":0}]
+[{"key":"name","type":0},{"key":"description","type":0}]
+'@ 
+$tmpInput = @'
+[{"description":null,"translateDescription":false,"inputFieldType":1,"key":"searchValue","type":0,"options":1}]
 '@ 
 $dataSourceGuid_0 = [PSCustomObject]@{} 
 $dataSourceGuid_0_Name = @'
-AD-account-generate-table-account-types-account-create
+AD-group-generate-table-wildcard-manage-memberships
 '@ 
-Invoke-HelloIDDatasource -DatasourceName $dataSourceGuid_0_Name -DatasourceType "2" -DatasourceStaticValue $tmpStaticValue -DatasourceModel $tmpModel -returnObject ([Ref]$dataSourceGuid_0) 
-<# End: DataSource "AD-account-generate-table-account-types-account-create" #>
+Invoke-HelloIDDatasource -DatasourceName $dataSourceGuid_0_Name -DatasourceType "4" -DatasourceInput $tmpInput -DatasourcePsScript $tmpPsScript -DatasourceModel $tmpModel -returnObject ([Ref]$dataSourceGuid_0) 
+<# End: DataSource "AD-group-generate-table-wildcard-manage-memberships" #>
+
+<# Begin: DataSource "AD-user-generate-table-samaccountname-manage-memberships" #>
+$tmpPsScript = @'
+try {
+    $ous = $ADusersSearchOU | ConvertFrom-Json
+    $users = foreach($item in $ous) {
+        Get-ADUser -Filter {Name -like "*"} -SearchBase $item.ou -properties displayName, sAMAccountName
+    }
+    
+    $users = $users | Sort-Object -Property DisplayName
+    $resultCount = @($users).Count
+    Write-information "Result count: $resultCount"
+    
+if($resultCount -gt 0){
+        foreach($user in $users){
+            $displayValue = $user.displayName + " [" + $user.sAMAccountName + "]"
+            $returnObject = @{sAMAccountName=$user.sAMAccountName; name=$displayValue}
+    
+            Write-output $returnObject
+        }
+    } else {
+        return
+    }
+} catch {
+    Write-error "Error searching AD users. Error: $($_.Exception.Message)"
+    return
+}
+'@ 
+$tmpModel = @'
+[{"key":"sAMAccountName","type":0},{"key":"name","type":0}]
+'@ 
+$tmpInput = @'
+[]
+'@ 
+$dataSourceGuid_1 = [PSCustomObject]@{} 
+$dataSourceGuid_1_Name = @'
+AD-user-generate-table-samaccountname-manage-memberships
+'@ 
+Invoke-HelloIDDatasource -DatasourceName $dataSourceGuid_1_Name -DatasourceType "4" -DatasourceInput $tmpInput -DatasourcePsScript $tmpPsScript -DatasourceModel $tmpModel -returnObject ([Ref]$dataSourceGuid_1) 
+<# End: DataSource "AD-user-generate-table-samaccountname-manage-memberships" #>
 <# End: HelloID Data sources #>
 
-<# Begin: Dynamic Form "AD Account - Create" #>
+<# Begin: Dynamic Form "AD Group - Manage memberships" #>
 $tmpSchema = @"
-[{"label":"Details","fields":[{"key":"ou","templateOptions":{"label":"Account type","required":true,"useObjects":false,"useDataSource":true,"useFilter":false,"options":["1111","2222","33333"],"valueField":"Path","textField":"Name","dataSourceConfig":{"dataSourceGuid":"$dataSourceGuid_0","input":{"propertyInputs":[]}}},"type":"dropdown","summaryVisibility":"Show","textOrLabel":"text","requiresTemplateOptions":true,"requiresKey":true,"requiresDataSource":false},{"key":"formRow","templateOptions":{},"fieldGroup":[{"key":"givenname","templateOptions":{"label":"Givenname","placeholder":"John","required":true,"minLength":2},"type":"input","summaryVisibility":"Show","requiresTemplateOptions":true,"requiresKey":true,"requiresDataSource":false},{"key":"middlename","templateOptions":{"label":"Middle name","placeholder":"van der"},"type":"input","summaryVisibility":"Show","requiresTemplateOptions":true,"requiresKey":true,"requiresDataSource":false},{"key":"lastname","templateOptions":{"label":"Last name","placeholder":"Poel","required":true,"minLength":2},"type":"input","summaryVisibility":"Show","requiresTemplateOptions":true,"requiresKey":true,"requiresDataSource":false}],"type":"formrow","requiresTemplateOptions":true,"requiresKey":true,"requiresDataSource":false},{"key":"department","templateOptions":{"label":"Department","placeholder":"ICT"},"type":"input","summaryVisibility":"Show","requiresTemplateOptions":true,"requiresKey":true,"requiresDataSource":false},{"key":"title","templateOptions":{"label":"Job title","placeholder":"Application owner"},"type":"input","summaryVisibility":"Show","requiresTemplateOptions":true,"requiresKey":true,"requiresDataSource":false},{"key":"formRow1","templateOptions":{},"fieldGroup":[{"key":"blnExpDate","templateOptions":{"label":"Account Expires","useSwitch":true,"checkboxLabel":" yes"},"type":"boolean","summaryVisibility":"Show","requiresTemplateOptions":true,"requiresKey":true,"requiresDataSource":false},{"key":"expiredate","templateOptions":{"label":"Expire date","dateOnly":true},"hideExpression":"!model[\"blnExpDate\"]","type":"datetime","summaryVisibility":"Show","requiresTemplateOptions":true,"requiresKey":true,"requiresDataSource":false}],"type":"formrow","requiresTemplateOptions":true,"requiresKey":true,"requiresDataSource":false},{"key":"password","templateOptions":{"label":"Password","required":true,"minLength":5},"type":"password","summaryVisibility":"Hide value","requiresTemplateOptions":true,"requiresKey":true,"requiresDataSource":false}]},{"label":"Naming","fields":[{"key":"naming","templateOptions":{"label":"Naming convention","required":true,"grid":{"columns":[{"headerName":"Displayname","field":"displayname"},{"headerName":"UserPrincipalName","field":"userPrincipalName"},{"headerName":"Samaccountname","field":"samaccountname"}],"height":300,"rowSelection":"single"},"dataSourceConfig":{"dataSourceGuid":"$dataSourceGuid_1","input":{"propertyInputs":[{"propertyName":"givenName","otherFieldValue":{"otherFieldKey":"givenname"}},{"propertyName":"middleName","otherFieldValue":{"otherFieldKey":"middlename"}},{"propertyName":"lastName","otherFieldValue":{"otherFieldKey":"lastname"}}]}},"useFilter":false},"type":"grid","summaryVisibility":"Show","requiresTemplateOptions":true,"requiresKey":true,"requiresDataSource":true}]}]
+[{"label":"Select group","fields":[{"key":"searchfield","templateOptions":{"label":"Search","placeholder":""},"type":"input","summaryVisibility":"Hide element","requiresTemplateOptions":true,"requiresKey":true,"requiresDataSource":false},{"key":"gridGroups","templateOptions":{"label":"Select group","required":true,"grid":{"columns":[{"headerName":"Name","field":"name"},{"headerName":"Description","field":"description"}],"height":300,"rowSelection":"single"},"dataSourceConfig":{"dataSourceGuid":"$dataSourceGuid_0","input":{"propertyInputs":[{"propertyName":"searchValue","otherFieldValue":{"otherFieldKey":"searchfield"}}]}},"useFilter":false},"type":"grid","summaryVisibility":"Show","requiresTemplateOptions":true,"requiresKey":true,"requiresDataSource":true}]},{"label":"Members","fields":[{"key":"members","templateOptions":{"label":"Manage group memberships","required":false,"filterable":true,"useDataSource":true,"dualList":{"options":[{"guid":"75ea2890-88f8-4851-b202-626123054e14","Name":"Apple"},{"guid":"0607270d-83e2-4574-9894-0b70011b663f","Name":"Pear"},{"guid":"1ef6fe01-3095-4614-a6db-7c8cd416ae3b","Name":"Orange"}],"optionKeyProperty":"sAMAccountName","optionDisplayProperty":"name","labelLeft":"Available","labelRight":"Member of"},"dataSourceConfig":{"dataSourceGuid":"$dataSourceGuid_1","input":{"propertyInputs":[]}},"destinationDataSourceConfig":{"dataSourceGuid":"$dataSourceGuid_2","input":{"propertyInputs":[{"propertyName":"selectedGroup","otherFieldValue":{"otherFieldKey":"gridGroups"}}]}},"useFilter":false},"type":"duallist","summaryVisibility":"Show","sourceDataSourceIdentifierSuffix":"source-datasource","destinationDataSourceIdentifierSuffix":"destination-datasource","requiresTemplateOptions":true,"requiresKey":true,"requiresDataSource":false}]}]
 "@ 
 
 $dynamicFormGuid = [PSCustomObject]@{} 
 $dynamicFormName = @'
-AD Account - Create
+AD Group - Manage memberships
 '@ 
 Invoke-HelloIDDynamicForm -FormName $dynamicFormName -FormSchema $tmpSchema  -returnObject ([Ref]$dynamicFormGuid) 
 <# END: Dynamic Form #>
@@ -426,7 +493,9 @@ foreach($group in $delegatedFormAccessGroupNames) {
         Write-Error "HelloID (access)group '$group', message: $_"
     }
 }
-$delegatedFormAccessGroupGuids = ($delegatedFormAccessGroupGuids | Select-Object -Unique | ConvertTo-Json -Depth 100 -Compress)
+if($null -ne $delegatedFormAccessGroupGuids){
+    $delegatedFormAccessGroupGuids = ($delegatedFormAccessGroupGuids | Select-Object -Unique | ConvertTo-Json -Depth 100 -Compress)
+}
 
 $delegatedFormCategoryGuids = @()
 foreach($category in $delegatedFormCategories) {
@@ -458,12 +527,11 @@ $delegatedFormCategoryGuids = (ConvertTo-Json -InputObject $delegatedFormCategor
 <# Begin: Delegated Form #>
 $delegatedFormRef = [PSCustomObject]@{guid = $null; created = $null} 
 $delegatedFormName = @'
-AD account - Create
+AD Group - Manage memberships
 '@
 $tmpTask = @'
-{"name":"AD account - Create","script":"$VerbosePreference = \"SilentlyContinue\"\r\n$InformationPreference = \"Continue\"\r\n$WarningPreference = \"Continue\"\r\n\r\n# variables configured in form\r\n$blnexpdate = $form.blnexpdate\r\n$defaultGroups = $form.ou.groups\r\n$department = $form.department\r\n$displayName = $form.naming.displayname\r\n$employeeType = $form.ou.type\r\n$expiredate = $form.expiredate\r\n$firstname = $form.givenname\r\n$lastname = $form.lastname\r\n$middlename = $form.middlename\r\n$ou = $form.ou.Path\r\n$password = $form.password\r\n$sAMAccountName = $form.naming.samaccountname\r\n$userPrincipalName = $form.naming.UserPrincipalName\r\n\r\ntry {\r\n    #check existing AD user\r\n    $adUser = Get-ADuser -Filter { UserPrincipalName -eq $userPrincipalName } | Select-Object SID\r\n    if ([string]::IsNullOrEmpty($adUser)) {\r\n        if ($blnexpdate -ne 'true') {\r\n            $expDate = $null\r\n        }\r\n        else {\r\n            $expDate = [datetime]$expiredate\r\n        }\r\n\r\n        Write-Information \"Expiredate: $expDate\"\r\n\r\n        $ADUserParams = @{\r\n            Name                  = $sAMAccountName\r\n            sAMAccountName        = $sAMAccountName\r\n            AccountPassword       = (ConvertTo-SecureString -AsPlainText $password -Force)\r\n            path                  = $ou\r\n            Enabled               = $true\r\n            UserPrincipalName     = $userPrincipalName\r\n            GivenName             = $firstname\r\n            Surname               = $lastname\r\n            DisplayName           = $displayName\r\n            Description           = \"Created by HelloID Form\"\r\n            Department            = $department\r\n            Title                 = $title\r\n            AccountExpirationDate = $expDate\r\n        }\r\n\r\n        $ADUserParams.Add( 'OtherAttributes', @{'EmployeeType' = \"$employeeType\" } )\r\n       \r\n        $createUser = New-ADUser @ADUserParams\r\n        Write-Information \"AD user [$sAMAccountName] created successfully\"\r\n\r\n        $adUser = Get-ADuser -Filter { UserPrincipalName -eq $userPrincipalName } | Select-Object SID\r\n        $adUserSID = $([string]$adUser.SID)\r\n        $Log = @{\r\n            Action            = \"CreateAccount\" # optional. ENUM (undefined = default) \r\n            System            = \"ActiveDirectory\" # optional (free format text) \r\n            Message           = \"Created account with username $userPrincipalName\" # required (free format text) \r\n            IsError           = $false # optional. Elastic reporting purposes only. (default = $false. $true = Executed action returned an error) \r\n            TargetDisplayName = $displayName # optional (free format text) \r\n            TargetIdentifier  = $adUserSID # optional (free format text) \r\n        }\r\n        #send result back  \r\n        Write-Information -Tags \"Audit\" -MessageData $log\r\n    }\r\n    else {\r\n        $adUserSID = $([string]$adUser.SID)\r\n        $Log = @{\r\n            Action            = \"CreateAccount\" # optional. ENUM (undefined = default) \r\n            System            = \"ActiveDirectory\" # optional (free format text) \r\n            Message           = \"Account with username $userPrincipalName already exists\" # required (free format text) \r\n            IsError           = $false # optional. Elastic reporting purposes only. (default = $false. $true = Executed action returned an error) \r\n            TargetDisplayName = $displayName # optional (free format text) \r\n            TargetIdentifier  = $adUserSID # optional (free format text) \r\n        }\r\n        #send result back  \r\n        Write-Information -Tags \"Audit\" -MessageData $log\r\n    }\r\n    foreach ($groupToAdd in $defaultGroups) {\r\n        try {\r\n            $null = Add-ADGroupMember -Identity $groupToAdd.name -Members $adUser\r\n            Write-Information \"Successfully added AD user [$sAMAccountName] to AD group $($groupToAdd.name)\"\r\n            \r\n            $Log = @{\r\n                Action            = \"GrantMembership\" # optional. ENUM (undefined = default) \r\n                System            = \"ActiveDirectory\" # optional (free format text) \r\n                Message           = \"AD user $userPrincipalName added to group '$($groupToAdd.name)'\" # required (free format text) \r\n                IsError           = $false # optional. Elastic reporting purposes only. (default = $false. $true = Executed action returned an error) \r\n                TargetDisplayName = $displayName # optional (free format text) \r\n                TargetIdentifier  = $adUserSID # optional (free format text) \r\n            }\r\n            #send result back  \r\n            Write-Information -Tags \"Audit\" -MessageData $log\r\n        }\r\n        catch {\r\n            Write-Error \"Could not add AD user [$sAMAccountName] to AD group '$($groupToAdd.name)'. Error: $($_.Exception.Message)\"\r\n            \r\n            $Log = @{\r\n                Action            = \"GrantMembership\" # optional. ENUM (undefined = default) \r\n                System            = \"ActiveDirectory\" # optional (free format text) \r\n                Message           = \"Failed to add AD user $userPrincipalName to group '$($groupToAdd.name)'. Error: $($_.Exception.Message)\" # required (free format text) \r\n                IsError           = $true # optional. Elastic reporting purposes only. (default = $false. $true = Executed action returned an error) \r\n                TargetDisplayName = $displayName # optional (free format text)\r\n                TargetIdentifier  = $adUserSID # optional (free format text)\r\n            }\r\n            #send result back  \r\n            Write-Information -Tags \"Audit\" -MessageData $log\r\n        }\r\n    }\r\n}\r\ncatch {\r\n    Write-Error \"Error creating AD user [$sAMAccountName]. Error: $($_.Exception.Message)\"\r\n    \r\n    $Log = @{\r\n        Action            = \"CreateAccount\" # optional. ENUM (undefined = default) \r\n        System            = \"ActiveDirectory\" # optional (free format text) \r\n        Message           = \"Error creating account with username $userPrincipalName. Error: $($_.Exception.Message)\" # required (free format text) \r\n        IsError           = $true # optional. Elastic reporting purposes only. (default = $false. $true = Executed action returned an error) \r\n        TargetDisplayName = $displayName # optional (free format text)\r\n    }\r\n    #send result back  \r\n    Write-Information -Tags \"Audit\" -MessageData $log\r\n}","runInCloud":false}
+{"name":"AD Group - Manage memberships","script":"$VerbosePreference = \"SilentlyContinue\"\r\n$InformationPreference = \"Continue\"\r\n$WarningPreference = \"Continue\"\r\n\r\n# variables configured in form\r\n$groupName = $form.gridGroups.name\r\n$usersToAdd = $form.members.leftToRight\r\n$usersToRemove = $form.members.rightToLeft\r\n\r\ntry{\r\n    $adGroup = Get-ADgroup $groupName\r\n    Write-Information \"Found AD group [$groupName]\"\r\n}catch{\r\n    Write-Error \"Could not find AD group [$groupName]. Error: $($_.Exception.Message)\"\r\n}\r\n\r\nif($usersToAdd -ne $null){\r\n    foreach($userToAdd in $usersToAdd){\r\n        try{\r\n            $adUser = Get-ADuser $userToAdd.sAMAccountName\r\n            \r\n            $adUserDisplayName = $adUser.DisplayName\r\n            $adUserSID = $([string]$adUser.SID)\r\n\r\n            $adGroupDisplayName = $adGroup.DisplayName\r\n            $adGroupSID = $([string]$adGroup.SID)\r\n\r\n            $addMember = Add-ADGroupMember -Identity $adGroup -Members $adUser.sAMAccountName -Confirm:$false\r\n            Write-Information \"Successfully added AD user $adUserDisplayName ($adUserSID) to group $adGroupDisplayName ($adGroupSID)\"\r\n\r\n            $Log = @{\r\n                Action            = \"GrantMembership\" # optional. ENUM (undefined = default) \r\n                System            = \"ActiveDirectory\" # optional (free format text) \r\n                Message           = \"Successfully added AD user $adUserDisplayName ($adUserSID) to group $adGroupDisplayName ($adGroupSID)\" # required (free format text) \r\n                IsError           = $false # optional. Elastic reporting purposes only. (default = $false. $true = Executed action returned an error) \r\n                TargetDisplayName = $groupName # optional (free format text)\r\n                TargetIdentifier  = $adGroupSID # optional (free format text)\r\n            }\r\n            #send result back  \r\n            Write-Information -Tags \"Audit\" -MessageData $log\r\n        }catch{\r\n            $adGroupSID = $([string]$adGroup.SID)\r\n            $Log = @{\r\n                Action            = \"GrantMembership\" # optional. ENUM (undefined = default) \r\n                System            = \"ActiveDirectory\" # optional (free format text) \r\n                Message           = \"Failed to add AD user $adUserDisplayName ($adUserSID) to group $adGroupDisplayName ($adGroupSID). Error: $($_.Exception.Message)\" # required (free format text) \r\n                IsError           = $true # optional. Elastic reporting purposes only. (default = $false. $true = Executed action returned an error) \r\n                TargetDisplayName = $groupName # optional (free format text)\r\n                TargetIdentifier  = $adGroupSID # optional (free format text)\r\n            }\r\n            #send result back  \r\n            Write-Information -Tags \"Audit\" -MessageData $log\r\n\r\n            Write-Error \"Could not add AD user $adUserDisplayName ($adUserSID) to group $adGroupDisplayName ($adGroupSID). Error: $($_.Exception.Message)\"            \r\n        }\r\n    }\r\n}\r\n\r\nif($usersToRemove -ne $null){\r\n    foreach($userToRemove in $usersToRemove){\r\n        try{\r\n            $adUser = Get-ADuser $userToRemove.sAMAccountName\r\n            \r\n            $adUserDisplayName = $adUser.DisplayName\r\n            $adUserSID = $([string]$adUser.SID)\r\n\r\n            $adGroupDisplayName = $adGroup.DisplayName\r\n            $adGroupSID = $([string]$adGroup.SID)\r\n\r\n            $addMember = Remove-ADGroupMember -Identity $adGroup -Members $adUser.sAMAccountName -Confirm:$false\r\n            Write-Information \"Successfully removed AD user $adUserDisplayName ($adUserSID) from group $adGroupDisplayName ($adGroupSID)\"\r\n\r\n            $Log = @{\r\n                Action            = \"RevokeMembership\" # optional. ENUM (undefined = default) \r\n                System            = \"ActiveDirectory\" # optional (free format text) \r\n                Message           = \"Successfully removed AD user $adUserDisplayName ($adUserSID) from group $adGroupDisplayName ($adGroupSID)\" # required (free format text) \r\n                IsError           = $false # optional. Elastic reporting purposes only. (default = $false. $true = Executed action returned an error) \r\n                TargetDisplayName = $groupName # optional (free format text)\r\n                TargetIdentifier  = $adGroupSID # optional (free format text)\r\n            }\r\n            #send result back  \r\n            Write-Information -Tags \"Audit\" -MessageData $log\r\n        }catch{\r\n            $adGroupSID = $([string]$adGroup.SID)\r\n            $Log = @{\r\n                Action            = \"RevokeMembership\" # optional. ENUM (undefined = default) \r\n                System            = \"ActiveDirectory\" # optional (free format text) \r\n                Message           = \"Failed to remove AD user $adUserDisplayName ($adUserSID) from group $adGroupDisplayName ($adGroupSID). Error: $($_.Exception.Message)\" # required (free format text) \r\n                IsError           = $true # optional. Elastic reporting purposes only. (default = $false. $true = Executed action returned an error) \r\n                TargetDisplayName = $groupName # optional (free format text)\r\n                TargetIdentifier  = $adGroupSID # optional (free format text)\r\n            }\r\n            #send result back  \r\n            Write-Information -Tags \"Audit\" -MessageData $log\r\n\r\n            Write-Error \"Could not add AD user $adUserDisplayName ($adUserSID) from group $adGroupDisplayName ($adGroupSID). Error: $($_.Exception.Message)\"\r\n        }\r\n    }\r\n}","runInCloud":false}
 '@ 
 
-Invoke-HelloIDDelegatedForm -DelegatedFormName $delegatedFormName -DynamicFormGuid $dynamicFormGuid -AccessGroups $delegatedFormAccessGroupGuids -Categories $delegatedFormCategoryGuids -UseFaIcon "True" -FaIcon "fa fa-user-plus" -task $tmpTask -returnObject ([Ref]$delegatedFormRef) 
+Invoke-HelloIDDelegatedForm -DelegatedFormName $delegatedFormName -DynamicFormGuid $dynamicFormGuid -AccessGroups $delegatedFormAccessGroupGuids -Categories $delegatedFormCategoryGuids -UseFaIcon "True" -FaIcon "fa fa-users" -task $tmpTask -returnObject ([Ref]$delegatedFormRef) 
 <# End: Delegated Form #>
-
